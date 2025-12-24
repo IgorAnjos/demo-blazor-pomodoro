@@ -10,10 +10,28 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>demo-blazor-pomodoro</title>
+    <title>🍅 Pomodoro Timer</title>
     <base href="~/" />
     <link rel="stylesheet" href="css/bootstrap/bootstrap.min.css" />
     <link href="css/site.css" rel="stylesheet" />
+    <script>
+        // Apply theme immediately to prevent flash
+        (function() {
+            const theme = localStorage.getItem('theme') || 
+                         (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            document.documentElement.setAttribute('data-theme', theme);
+        })();
+        
+        // Helper function for theme detection
+        window.matchMedia = window.matchMedia || function(query) {
+            return {
+                matches: false,
+                media: query,
+                addListener: function() {},
+                removeListener: function() {}
+            };
+        };
+    </script>
 </head>
 <body>
     <app>

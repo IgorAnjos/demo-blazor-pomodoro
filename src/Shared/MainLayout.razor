@@ -1,10 +1,122 @@
 ﻿@inherits LayoutComponentBase
+@inject IJSRuntime JSRuntime
 
 <div class="main">
-    <div>
-        <NavMenu></NavMenu>
-    </div>
-    <div class="content" px-4>
+    <nav class="navbar-custom">
+        <div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+            <a href="/" class="navbar-brand" style="text-decoration: none;">
+                <span>🍅</span>
+                <span>Pomodoro</span>
+            </a>
+            
+            <ul class="nav-links">
+                <li>
+                    <a href="/" class="nav-link-item @(IsActive("/") ? "active" : "")">Timer</a>
+                </li>
+                <li>
+                    <a href="/settings" class="nav-link-item @(IsActive("/settings") ? "active" : "")">Settings</a>
+                </li>
+                <li>
+                    <button class="theme-toggle" @onclick="ToggleTheme" aria-label="Toggle theme">
+                        <div class="theme-toggle-slider">
+                            @if (_currentTheme == "dark")
+                            {
+                                <span>🌙</span>
+                            }
+                            else
+                            {
+                                <span>☀️</span>
+                            }
+                        </div>
+                    </button>
+                </li>
+            </ul>
+        </div>
+    </nav>
+
+    <div class="content">
         @Body
     </div>
 </div>
+
+@code {
+    private string _currentTheme = "light";
+    private bool _isRendered = false;
+
+    [Inject] private NavigationManager? NavigationManager { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _isRendered = true;
+            await LoadTheme();
+        }
+    }
+
+    private async Task LoadTheme()
+    {
+        try
+        {
+            var savedTheme = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "theme");
+            if (!string.IsNullOrEmpty(savedTheme))
+            {
+                _currentTheme = savedTheme;
+                await ApplyTheme(_currentTheme);
+            }
+            else
+            {
+                // Detect system preference
+                var prefersDark = await JSRuntime.InvokeAsync<bool>("eval", "window.matchMedia('(prefers-color-scheme: dark)').matches");
+                _currentTheme = prefersDark ? "dark" : "light";
+                await ApplyTheme(_currentTheme);
+            }
+            StateHasChanged();
+        }
+        catch
+        {
+            // Fallback to light theme
+            _currentTheme = "light";
+            await ApplyTheme("light");
+        }
+    }
+
+    private async Task ToggleTheme()
+    {
+        if (!_isRendered) return;
+
+        _currentTheme = _currentTheme == "light" ? "dark" : "light";
+        
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "theme", _currentTheme);
+            await ApplyTheme(_currentTheme);
+        }
+        catch
+        {
+            // Ignore errors
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task ApplyTheme(string theme)
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("eval", $"document.documentElement.setAttribute('data-theme', '{theme}')");
+        }
+        catch
+        {
+            // Ignore errors
+        }
+    }
+
+    private bool IsActive(string path)
+    {
+        if (NavigationManager == null) return false;
+        
+        var currentPath = new Uri(NavigationManager.Uri).AbsolutePath;
+        return string.Equals(currentPath, path, StringComparison.OrdinalIgnoreCase);
+    }
+}

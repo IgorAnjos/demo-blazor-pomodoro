@@ -1,155 +1,243 @@
-﻿@page "/"
+@page "/"
 @inject Blazored.LocalStorage.ILocalStorageService localStorage
-<div class="text-center">
-    <div class="row text-center">
-        <div class="col-12 text-center">
-            <div class="row">
-                <div class="col-8 offset-2 box-pomodoro">
+@inject IJSRuntime JSRuntime
+@implements IDisposable
 
-                    <div class="row text-center">
-                        <div class="col-8 offset-2 text-center">
-                            <div class="row text-center">
-                                <div class="col-4">
-                                    <input type="button" class="@(_timerType == TimerType.Pomodoro? "selected-pomodoro-option":"pomodoro-button")" value="Pomodoro" @onclick="SetToPomodoro" />
-                                </div>
+<div class="pomodoro-container">
+    <div class="pomodoro-card">
+        
+        <div class="timer-types">
+            <button class="timer-type-btn @(_timerType == TimerType.Pomodoro ? "active" : "")" 
+                    @onclick="SetToPomodoro">
+                🍅 Pomodoro
+            </button>
+            <button class="timer-type-btn @(_timerType == TimerType.ShortBreak ? "active" : "")" 
+                    @onclick="SetToShortBreak">
+                ☕ Short Break
+            </button>
+            <button class="timer-type-btn @(_timerType == TimerType.LongBreak ? "active" : "")" 
+                    @onclick="SetToLongBreak">
+                🌴 Long Break
+            </button>
+        </div>
 
-                                <div class="col-4">
-                                    <input type="button" class="@(_timerType == TimerType.ShortBreak? "selected-pomodoro-option":"pomodoro-button")" value="Short Break" @onclick="SetToShortBreak" />
-                                </div>
-
-                                <div class="col-4">
-                                    <input type="button" class="@(_timerType == TimerType.LongBreak? "selected-pomodoro-option":"pomodoro-button")" value="Long Break" @onclick="SetToLongBreak" />
-                                </div>
-                            </div>
-                            <div class="row">
-                                <div class="timer-pomodoro col-12 text-center">
-
-                                    <span>@_timeLeft.ToString("mm:ss")</span>
-                                </div>
-                            </div>
-                            <div class="row">
-                                <div class="col-12">
-                                    @if (_pomodoroSettings == null)
-                                    {
-                                        <span class="custom-message">First of all, configure the time for Pomodoro, Short Break and Long Break on Settings</span>
-                                    }
-                                    else
-                                    {
-                                        <input class="pomodoro-button-start" type="button" value="@(_timerHasStarted? "Stop":"Start")" @onclick="SetTimer" />
-
-                                        <input class="pomodoro-button-start" type="button" value="Reset" @onclick="ResetTimer" />
-
-                                    }
-
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                </div>
+        <div class="timer-display @GetTimerClass()">
+            <div class="timer-text">
+                @_timeLeft.ToString("mm\\:ss")
             </div>
         </div>
 
+        @if (_pomodoroSettings == null)
+        {
+            <p class="custom-message">
+                ⚙️ First, configure your timer durations in Settings
+            </p>
+        }
+        else
+        {
+            <div class="timer-controls">
+                <button class="btn-control btn-start" @onclick="SetTimer">
+                    @(_timerHasStarted ? "⏸ Pause" : "▶ Start")
+                </button>
+                <button class="btn-control btn-reset" @onclick="ResetTimer">
+                    🔄 Reset
+                </button>
+            </div>
+        }
+
+        @if (_pomodoroCompleted > 0)
+        {
+            <div class="stats-container">
+                <span class="stats-badge">
+                    🎯 @_pomodoroCompleted pomodoros completed today!
+                </span>
+            </div>
+        }
     </div>
-
-
 </div>
 
 @code {
-
-    private PomodoroSettings _pomodoroSettings;
+    private PomodoroSettings? _pomodoroSettings;
     private bool _timerHasStarted;
-    private static System.Timers.Timer _aTimer;
-    private DateTime _timeLeft = new DateTime();
-    private TimerType _timerType;
-
-    protected override async Task OnInitializedAsync()
-    {
-        _timerType = TimerType.Pomodoro;
-    }
+    private PeriodicTimer? _periodicTimer;
+    private TimeSpan _timeLeft = TimeSpan.Zero;
+    private TimerType _timerType = TimerType.Pomodoro;
+    private int _pomodoroCompleted = 0;
+    private CancellationTokenSource? _cancellationTokenSource;
+    private bool _isRendered = false;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        var json = await localStorage.GetItemAsync<string>("pomodoroSettings");
-
-        if (json != null) _pomodoroSettings = System.Text.Json.JsonSerializer.Deserialize<PomodoroSettings>(json);
-
-        StateHasChanged();
+        if (firstRender)
+        {
+            _isRendered = true;
+            await LoadSettings();
+            await LoadPomodoroCount();
+            ResetTimerToCurrentType();
+            StateHasChanged();
+        }
     }
 
-    // colocar pra false a indicação se o time está rodando ou não
+    private async Task LoadSettings()
+    {
+        var json = await localStorage.GetItemAsync<string>("pomodoroSettings");
+        if (!string.IsNullOrEmpty(json))
+        {
+            _pomodoroSettings = System.Text.Json.JsonSerializer.Deserialize<PomodoroSettings>(json);
+        }
+    }
+
+    private async Task LoadPomodoroCount()
+    {
+        var today = DateTime.Today.ToString("yyyy-MM-dd");
+        var storedDate = await localStorage.GetItemAsync<string>("pomodoroCountDate");
+        
+        if (storedDate == today)
+        {
+            _pomodoroCompleted = await localStorage.GetItemAsync<int>("pomodoroCount");
+        }
+        else
+        {
+            _pomodoroCompleted = 0;
+            await localStorage.SetItemAsync("pomodoroCountDate", today);
+            await localStorage.SetItemAsync("pomodoroCount", 0);
+        }
+    }
+
+    private async Task IncrementPomodoroCount()
+    {
+        _pomodoroCompleted++;
+        await localStorage.SetItemAsync("pomodoroCount", _pomodoroCompleted);
+    }
+
     private void SetToPomodoro()
     {
-        _timerHasStarted = false;
-        _timeLeft = new DateTime();
+        if (_timerHasStarted) return;
+        
         _timerType = TimerType.Pomodoro;
-        _timeLeft = _timeLeft.AddMinutes(_pomodoroSettings.PomodoroDuration);
-        StateHasChanged();
+        ResetTimerToCurrentType();
     }
 
     private void SetToShortBreak()
     {
-        _timerHasStarted = false;
-        _timeLeft = new DateTime();
+        if (_timerHasStarted) return;
+        
         _timerType = TimerType.ShortBreak;
-        _timeLeft = _timeLeft.AddMinutes(_pomodoroSettings.ShortBreak);
-        StateHasChanged();
+        ResetTimerToCurrentType();
     }
 
     private void SetToLongBreak()
     {
-        _timerHasStarted = false;
-        _timeLeft = new DateTime();
+        if (_timerHasStarted) return;
+        
         _timerType = TimerType.LongBreak;
-        _timeLeft = _timeLeft.AddMinutes(_pomodoroSettings.LongBreak);
+        ResetTimerToCurrentType();
+    }
+
+    private void ResetTimerToCurrentType()
+    {
+        if (_pomodoroSettings == null) return;
+
+        _timeLeft = _timerType switch
+        {
+            TimerType.Pomodoro => TimeSpan.FromMinutes(_pomodoroSettings.PomodoroDuration),
+            TimerType.ShortBreak => TimeSpan.FromMinutes(_pomodoroSettings.ShortBreak),
+            TimerType.LongBreak => TimeSpan.FromMinutes(_pomodoroSettings.LongBreak),
+            _ => TimeSpan.Zero
+        };
+        
         StateHasChanged();
     }
 
-    private void SetTimer()
+    private async Task SetTimer()
     {
-        if (_timerHasStarted) _timerHasStarted = false;
+        _timerHasStarted = !_timerHasStarted;
+
+        if (_timerHasStarted)
+        {
+            _cancellationTokenSource = new CancellationTokenSource();
+            _ = RunTimer(_cancellationTokenSource.Token);
+        }
         else
         {
-            if (_aTimer != null) _aTimer.Dispose();
-
-            _timerHasStarted = true;
-            _aTimer = new System.Timers.Timer(1000);
-            _aTimer.Elapsed += OnTimedEvent;
-            _aTimer.AutoReset = true;
-            _aTimer.Enabled = true;
+            _cancellationTokenSource?.Cancel();
         }
+    }
 
-        StateHasChanged();
+    private async Task RunTimer(CancellationToken cancellationToken)
+    {
+        _periodicTimer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+
+        try
+        {
+            while (await _periodicTimer.WaitForNextTickAsync(cancellationToken))
+            {
+                if (_timeLeft.TotalSeconds > 0)
+                {
+                    _timeLeft = _timeLeft.Subtract(TimeSpan.FromSeconds(1));
+                    await InvokeAsync(StateHasChanged);
+                }
+                else
+                {
+                    // Timer completed
+                    _timerHasStarted = false;
+                    
+                    if (_timerType == TimerType.Pomodoro)
+                    {
+                        await IncrementPomodoroCount();
+                        await PlayNotificationSound();
+                    }
+                    
+                    await InvokeAsync(StateHasChanged);
+                    break;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Timer was cancelled
+        }
+        finally
+        {
+            _periodicTimer?.Dispose();
+        }
+    }
+
+    private async Task PlayNotificationSound()
+    {
+        if (!_isRendered) return;
+        
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("eval", "new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3').play()");
+        }
+        catch
+        {
+            // Ignore errors if sound playback fails
+        }
     }
 
     private void ResetTimer()
     {
         _timerHasStarted = false;
-        switch (_timerType)
-        {
-            case TimerType.Pomodoro:
-                SetToPomodoro();
-                break;
-            case TimerType.ShortBreak:
-                SetToShortBreak();
-                break;
-            case TimerType.LongBreak:
-                SetToLongBreak();
-                break;
-        }
+        _cancellationTokenSource?.Cancel();
+        ResetTimerToCurrentType();
     }
 
-    private void OnTimedEvent(Object source, System.Timers.ElapsedEventArgs e)
+    private string GetTimerClass()
     {
-        if (_timerHasStarted)
+        return _timerType switch
         {
-            try
-            {
-                _timeLeft = _timeLeft.AddSeconds(-1);
-            }
-            catch (ArgumentOutOfRangeException ex)
-            {
-            }
-        }
+            TimerType.ShortBreak => "break",
+            TimerType.LongBreak => "long-break",
+            _ => ""
+        };
+    }
+
+    public void Dispose()
+    {
+        _cancellationTokenSource?.Cancel();
+        _cancellationTokenSource?.Dispose();
+        _periodicTimer?.Dispose();
     }
 }

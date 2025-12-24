@@ -1,76 +1,105 @@
-﻿@page "/settings"
+@page "/settings"
 @inject Blazored.LocalStorage.ILocalStorageService localStorage
+@inject NavigationManager Navigation
 
-
-<div class="text-center">
-    <div class="row text-center">
-        <div class="col-12 text-center">
-            <div class="row">
-                <div class="col-8 offset-2 box-pomodoro">
-
-                    <div class="row text-center">
-                        <div class="col-8 offset-2 text-center">
-                            <EditForm Model="@_pomodoroSettings" OnValidSubmit="FormSubmit">
-
-                                <p>
-                                    <label>
-                                        Pomodoro:
-                                        <InputNumber @bind-Value="_pomodoroSettings.PomodoroDuration" />
-                                    </label>
-                                </p>
-                                <p>
-                                    <label>
-                                        Short Break:
-                                        <InputNumber @bind-Value="_pomodoroSettings.ShortBreak" />
-                                    </label>
-                                </p>
-                                <p>
-                                    <label>
-                                        Long Break:
-                                        <InputNumber @bind-Value="_pomodoroSettings.LongBreak" />
-                                    </label>
-                                </p>
-
-
-                                <DataAnnotationsValidator />
-                                <ValidationSummary />
-
-                                <button type="submit">Submit</button>
-
-                                <br />
-
-                            </EditForm>
-                        </div>
-                    </div>
-
-                </div>
+<div class="settings-container">
+    <div class="settings-card">
+        <h2 class="settings-title">⚙️ Settings</h2>
+        
+        <EditForm Model="@_pomodoroSettings" OnValidSubmit="FormSubmit">
+            <DataAnnotationsValidator />
+            
+            <div class="form-group">
+                <label class="form-label">
+                    🍅 Pomodoro Duration (minutes)
+                </label>
+                <InputNumber class="form-control" @bind-Value="_pomodoroSettings.PomodoroDuration" />
+                <ValidationMessage For="@(() => _pomodoroSettings.PomodoroDuration)" class="validation-message" />
             </div>
-        </div>
+            
+            <div class="form-group">
+                <label class="form-label">
+                    ☕ Short Break (minutes)
+                </label>
+                <InputNumber class="form-control" @bind-Value="_pomodoroSettings.ShortBreak" />
+                <ValidationMessage For="@(() => _pomodoroSettings.ShortBreak)" class="validation-message" />
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">
+                    🌴 Long Break (minutes)
+                </label>
+                <InputNumber class="form-control" @bind-Value="_pomodoroSettings.LongBreak" />
+                <ValidationMessage For="@(() => _pomodoroSettings.LongBreak)" class="validation-message" />
+            </div>
 
+            <ValidationSummary class="validation-message" />
+
+            <div class="timer-controls">
+                <button type="submit" class="btn-control btn-start">💾 Save Settings</button>
+                <button type="button" class="btn-control btn-reset" @onclick="Cancel">❌ Cancel</button>
+            </div>
+
+            @if (_showSuccessMessage)
+            {
+                <div class="alert-success">
+                    ✅ Settings saved successfully! Redirecting...
+                </div>
+            }
+
+        </EditForm>
     </div>
-
-
 </div>
 
-
 @code {
-    private PomodoroSettings _pomodoroSettings = new PomodoroSettings();
+    private PomodoroSettings _pomodoroSettings = new();
+    private bool _showSuccessMessage = false;
 
     protected override async Task OnInitializedAsync()
     {
+        // Set defaults first
+        _pomodoroSettings.PomodoroDuration = 25;
+        _pomodoroSettings.ShortBreak = 5;
+        _pomodoroSettings.LongBreak = 15;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        var json = await localStorage.GetItemAsync<string>("pomodoroSettings");
+        if (firstRender)
+        {
+            await LoadSettings();
+            StateHasChanged();
+        }
+    }
 
-        if (json != null) _pomodoroSettings = System.Text.Json.JsonSerializer.Deserialize<PomodoroSettings>(json);
-        StateHasChanged();
+    private async Task LoadSettings()
+    {
+        var json = await localStorage.GetItemAsync<string>("pomodoroSettings");
+        
+        if (!string.IsNullOrEmpty(json))
+        {
+            var settings = System.Text.Json.JsonSerializer.Deserialize<PomodoroSettings>(json);
+            if (settings != null)
+            {
+                _pomodoroSettings = settings;
+            }
+        }
     }
 
     private async Task FormSubmit()
     {
         var json = System.Text.Json.JsonSerializer.Serialize(_pomodoroSettings);
         await localStorage.SetItemAsync("pomodoroSettings", json);
+        
+        _showSuccessMessage = true;
+        StateHasChanged();
+        
+        await Task.Delay(2000);
+        Navigation.NavigateTo("/");
+    }
+
+    private void Cancel()
+    {
+        Navigation.NavigateTo("/");
     }
 }
